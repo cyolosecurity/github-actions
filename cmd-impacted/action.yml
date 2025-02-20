@@ -1,0 +1,33 @@
+name: "Check if application was modified"
+description: "Detects whether go application was modified between two hashes"
+author: "yyellin"
+
+inputs:
+  old-hash:
+    description: "Previous commit hash"
+    required: true
+  new-hash:
+    description: "Newer commit hash"
+    required: true
+  application-path:
+    description: "Path to the application folder (e.g., ./cmd/agent, ./cmd/router)"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetches the full commit history to ensure both commits are available
+
+    - name: Run change detection script
+      shell: bash
+      run: |
+        chmod +x ${{ github.action_path }}/check_changes.sh
+        ${{ github.action_path }}/cmd-impacted.sh ${{ inputs.old-hash }} ${{ inputs.new-hash }} ${{ inputs.application-path }}
+
+outputs:
+  changed:
+    description: "Whether application was modified"
+    value: ${{ steps.check.outputs.changed }}
