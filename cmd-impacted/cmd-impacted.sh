@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e  # Exit on error
+#set -e  # Exit on error
 
 OLD_HASH=$1
 NEW_HASH=$2
@@ -79,9 +79,9 @@ fi
 
 # Step 8: Set GitHub Actions Output
 if [ "$DEPENDENCIES_CHANGED" = true ] || [ "$SOURCE_FILES_CHANGED" = true ]; then
-  echo "changed=true" >> "$GITHUB_ENV"  # Store in GITHUB_ENV for debugging
-  echo "changed=true" >> "$GITHUB_OUTPUT"  # Set GitHub Actions output
+  echo "changed=true"
+  echo "changed=true" >> "$GITHUB_OUTPUT"
 else
-  echo "changed=false" >> "$GITHUB_ENV"
+  echo "changed=false"
   echo "changed=false" >> "$GITHUB_OUTPUT"
 fi
