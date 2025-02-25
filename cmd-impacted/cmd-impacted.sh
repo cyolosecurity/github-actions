@@ -9,64 +9,54 @@ APPLICATION_PATH=$3  # Example: cmd/router
 PROJECT_ROOT=$(git rev-parse --show-toplevel)
 
 # Step 1: Get all changed files between the two commits
-CHANGED_FILES=()
-while IFS= read -r line; do
-  CHANGED_FILES+=("$line")
-done < <(git diff --name-only "$OLD_HASH" "$NEW_HASH")
+CHANGED_FILES=$(mktemp)
+git diff --name-only "$OLD_HASH" "$NEW_HASH" > "$CHANGED_FILES"
 
 # Step 2: Extract dependencies and all source files at OLD_HASH
 git checkout "$OLD_HASH" --quiet
-OLD_DEPS=()
-while IFS= read -r line; do
-  OLD_DEPS+=("$line")
-done < <(go list -mod=mod -deps -json "$APPLICATION_PATH/main.go" | jq -r '
-  select(.Module) | "\(.Module.Path) \(.Module.Version)"' | sort | uniq)
+OLD_DEPS=$(mktemp)
+go list -mod=mod -deps -json "$APPLICATION_PATH/main.go" | jq -r '
+  select(.Module) | "\(.Module.Path) \(.Module.Version)"' | sort | uniq > "$OLD_DEPS"
 
-OLD_FILES=()
-while IFS= read -r line; do
-  OLD_FILES+=("$line")
-done < <(go list -mod=mod -deps -json "$APPLICATION_PATH/main.go" | jq -r '
+OLD_FILES=$(mktemp)
+go list -mod=mod -deps -json "$APPLICATION_PATH/main.go" | jq -r '
   select(.Standard | not)
   | select(.Dir | startswith("'"$PROJECT_ROOT"'/"))
   | {dir: .Dir, files: (.GoFiles + .IgnoredGoFiles)}
-  | .files[] as $file | .dir + "/" + $file' | sort | uniq)
+  | .files[] as $file | .dir + "/" + $file' | sort | uniq > "$OLD_FILES"
 
 # Step 3: Extract dependencies and all source files at NEW_HASH
 git checkout "$NEW_HASH" --quiet
-NEW_DEPS=()
-while IFS= read -r line; do
-  NEW_DEPS+=("$line")
-done < <(go list -mod=mod -deps -json "$APPLICATION_PATH/main.go" | jq -r '
-  select(.Module) | "\(.Module.Path) \(.Module.Version)"' | sort | uniq)
+NEW_DEPS=$(mktemp)
+go list -mod=mod -deps -json "$APPLICATION_PATH/main.go" | jq -r '
+  select(.Module) | "\(.Module.Path) \(.Module.Version)"' | sort | uniq > "$NEW_DEPS"
 
-NEW_FILES=()
-while IFS= read -r line; do
-  NEW_FILES+=("$line")
-done < <(go list -mod=mod -deps -json "$APPLICATION_PATH/main.go" | jq -r '
+NEW_FILES=$(mktemp)
+go list -mod=mod -deps -json "$APPLICATION_PATH/main.go" | jq -r '
   select(.Standard | not)
   | select(.Dir | startswith("'"$PROJECT_ROOT"'/"))
   | {dir: .Dir, files: (.GoFiles + .IgnoredGoFiles)}
-  | .files[] as $file | .dir + "/" + $file' | sort | uniq)
+  | .files[] as $file | .dir + "/" + $file' | sort | uniq > "$NEW_FILES"
 
 # Step 4: Compare dependency lists (detects added or removed dependencies)
 DEPENDENCIES_CHANGED=false
-if comm -3 <(printf "%s\n" "${OLD_DEPS[@]}" | sort) <(printf "%s\n" "${NEW_DEPS[@]}" | sort) | grep -q .; then
+if comm -3 "$OLD_DEPS" "$NEW_DEPS" | grep -q .; then
   DEPENDENCIES_CHANGED=true
 fi
 
 # Step 5: Compare all source files (detects added or removed files, including OS-specific)
 SOURCE_FILES_CHANGED=false
-if comm -3 <(printf "%s\n" "${OLD_FILES[@]}" | sort) <(printf "%s\n" "${NEW_FILES[@]}" | sort) | grep -q .; then
+if comm -3 "$OLD_FILES" "$NEW_FILES" | grep -q .; then
   SOURCE_FILES_CHANGED=true
 fi
 
 # Step 6: Check if any changed files (from git diff) intersect with NEW_FILES
-for FILE in "${CHANGED_FILES[@]}"; do
-  if printf "%s\n" "${NEW_FILES[@]}" | grep -q "$FILE"; then
+while IFS= read -r FILE; do
+  if grep -q "$FILE" "$NEW_FILES"; then
     SOURCE_FILES_CHANGED=true
     break
   fi
-done
+done < "$CHANGED_FILES"
 
 # Step 7: Output summary message
 if [ "$DEPENDENCIES_CHANGED" = true ] && [ "$SOURCE_FILES_CHANGED" = true ]; then
@@ -85,3 +75,7 @@ else
   echo "changed=false"
   echo "changed=false" >> "$GITHUB_OUTPUT"
 fi
+
+# Cleanup temporary files
+rm -f "$CHANGED_FILES" "$OLD_DEPS" "$NEW_DEPS" "$OLD_FILES" "$NEW_FILES"
+
